@@ -8,6 +8,16 @@ It is a **clean-room implementation**. Novu was studied only as a behavioural re
 The Herald does not depend on, call, or copy Novu, and it is **not** a complete Novu replacement —
 only the notification-engine slice relevant to this challenge is built.
 
+## What we built on top of the reference
+
+| | |
+|---|---|
+| **Fix — Atomic Digest Window Ownership** | The original elects the digest master with check-then-write, which can create duplicate masters under concurrency (docs/GAPS.md §1, §4). Ours is a single atomic insert against a partial unique index; see `test_concurrent_events_elect_exactly_one_master`. |
+| **Differentiator — AI Smart Digest** | Digests become a TL;DR + action items (Groq `openai/gpt-oss-20b`), validated, with automatic fallback to a plain digest when AI is unavailable (docs/GAPS.md §5). |
+
+Reverse-engineering reference: Novu (<https://github.com/novuhq/novu>, commit `5c7191d`), studied only to write
+`docs/`; the implementation here was built from those docs. See `SUBMISSION.md` for the hackathon summary.
+
 ## Architecture
 
 ```
@@ -98,6 +108,7 @@ automatic fallback to a plain digest (the notification is still delivered; the a
 cd backend && pytest                 # needs local PostgreSQL + Redis, no external credentials
 cd frontend && npm run typecheck && npm run build
 ```
+The app runs without any API keys: with no `EMAIL_API_KEY` email steps fail visibly (in-app still works), and with no `AI_API_KEY` digests fall back to the plain format.
 Mock providers are used **only** in tests. Killer tests: `test_killer_test_1_ten_events_one_digest`,
 `test_killer_test_2_email_disabled_in_app_still_delivered`, `test_killer_test_3_retry_without_duplicates`;
 race test: `test_concurrent_events_elect_exactly_one_master`.

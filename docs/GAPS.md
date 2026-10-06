@@ -162,3 +162,22 @@ This document details four genuine candidate gaps discovered directly in the cod
   - Run a concurrency blast script sending 10 trigger requests simultaneously via `Promise.all()`.
   - Demonstrate that without the atomic mutex, two master timers are created.
   - Demonstrate that with our **Atomic Digest Window Mutex**, exactly ONE master job is elected (`CREATED`), 9 are atomically merged (`MERGED`), and exactly one single digest notification is delivered.
+
+---
+
+## 5. THE DIFFERENTIATOR
+
+### Feature Name:
+**AI Smart Digest — TL;DR + Action Items**
+
+### Why it matters (the original has nothing like it)
+The original's digest step only concatenates raw event payloads into `step.digest.events` (see OBSERVATIONS.md / ARCHITECTURE.md §2). A student who gets a burst of ten campus alerts still has to read all ten. Our digest synthesises the burst into a two-line **TL;DR** and a short list of **action items**, which is the actual problem the Brief describes (notification fatigue).
+
+### How it works
+- When a digest window closes, all merged events (identity preserved) are sent to an LLM provider (Groq `openai/gpt-oss-20b`) behind an `AIProvider` abstraction.
+- Output must be JSON `{"tldr": str, "action_items": [str]}`; it is validated and never trusted blindly.
+- **AI is never a single point of failure:** missing key, timeout, HTTP error, rate limit or malformed output → automatic fallback to a plain digest; email and in-app are still delivered, and the admin dashboard records why.
+- The summary is stored on the digest job and on each Message (`aiSummary`) and shown in the student feed and admin digest view.
+
+### Live demo
+Admin → "Send burst ×5" for one subscriber → when the window closes, the student page shows "✨ AI summary" and a real email arrives with the TL;DR + action items.
