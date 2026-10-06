@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_session
+from app.core.config import settings
 from app.core.auth import verify_api_key
 from app.db.models import DigestWindow, Job, Message, Notification
 from app.services.digest_service import collect_events
@@ -42,6 +43,7 @@ def overview(session: Session = Depends(get_session)):
         "skipped": jobs.get("SKIPPED", 0),
         "digestCount": sum(windows.values()),
         "digestWindowsByStatus": windows,
+        "digestWindowSeconds": (settings.DIGEST_WINDOW_MS_OVERRIDE or 300000) / 1000,
     }
 
 

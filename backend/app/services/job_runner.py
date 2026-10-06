@@ -87,19 +87,23 @@ class JobRunner:
             self._refresh_status(s, notification_id)
             s.commit()
 
-    def process_due(self, now: Optional[datetime] = None) -> int:
-        """Fire closed digest windows and run retries whose backoff elapsed."""
+    def process_due(self, now: Optional[datetime] = None, subscriber_ids: Optional[List[str]] = None) -> int:
+        """
+        Fire closed digest windows and run retries whose backoff elapsed.
+        ``subscriber_ids`` optionally scopes the sweep (used by tests so they never touch other data).
+        """
         now = now or self._clock()
         with self._sf() as s:
-            windows = digest_service.due_window_ids(s, now)
-            retries = list(
-                s.execute(
-                    select(Job.id)
-                    .where(Job.status == "DELAYED", Job.step_type != "DIGEST", Job.delay_until <= now)
-                    .order_by(Job.delay_until)
-                    .limit(100)
-                ).scalars()
+            windows = digest_service.due_window_ids(s, now, subscriber_ids=subscriber_ids)
+            retry_q = (
+                select(Job.id)
+                .where(Job.status == "DELAYED", Job.step_type != "DIGEST", Job.delay_until <= now)
+                .order_by(Job.delay_until)
+                .limit(100)
             )
+            if subscriber_ids is not None:
+                retry_q = retry_q.where(Job.subscriber_id.in_(subscriber_ids))
+            retries = list(s.execute(retry_q).scalars())
         for window_id in windows:
             self.fire_digest_window(window_id)
         for job_id in retries:

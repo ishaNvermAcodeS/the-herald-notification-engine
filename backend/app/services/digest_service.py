@@ -107,15 +107,18 @@ def register_event(
     raise RuntimeError("could not elect or join a digest window")
 
 
-def due_window_ids(session: Session, now: datetime, limit: int = 50) -> List[str]:
-    return list(
-        session.execute(
-            select(DigestWindow.id)
-            .where(DigestWindow.status == "OPEN", DigestWindow.window_ends_at <= now)
-            .order_by(DigestWindow.window_ends_at)
-            .limit(limit)
-        ).scalars()
+def due_window_ids(
+    session: Session, now: datetime, limit: int = 50, subscriber_ids: Optional[List[str]] = None
+) -> List[str]:
+    q = (
+        select(DigestWindow.id)
+        .where(DigestWindow.status == "OPEN", DigestWindow.window_ends_at <= now)
+        .order_by(DigestWindow.window_ends_at)
+        .limit(limit)
     )
+    if subscriber_ids is not None:
+        q = q.where(DigestWindow.subscriber_id.in_(subscriber_ids))
+    return list(session.execute(q).scalars())
 
 
 def claim_window(session: Session, window_id: str) -> Optional[DigestWindow]:

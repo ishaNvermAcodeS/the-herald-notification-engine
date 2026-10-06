@@ -18,7 +18,8 @@ from app.db.session import SyncSessionLocal
 from app.providers.ai import (
     AIError, GroqAIProvider, DigestSynthesizer, MockAIProvider, extract_json,
 )
-from app.providers.email import EmailSendError, MockEmailProvider, RealEmailProvider
+import smtplib
+from app.providers.email import EmailSendError, MockEmailProvider, RealEmailProvider, SmtpEmailProvider
 from app.services.job_runner import JobRunner
 from app.services.workflow_executor import WorkflowExecutor
 
@@ -62,7 +63,7 @@ class Env:
 
     def later(self, minutes=10):
         self.clock.now = BASE + timedelta(minutes=minutes)
-        return self.runner.process_due()
+        return self.runner.process_due(subscriber_ids=self.subs)
 
 
 @pytest.fixture
@@ -454,3 +455,70 @@ def test_groq_provider_parses_and_classifies(monkeypatch):
         GroqAIProvider(api_key="k").summarize("wf", [])
     with pytest.raises(AIError):
         GroqAIProvider(api_key="").summarize("wf", [])
+
+
+# ── SMTP provider (Gmail etc.) ───────────────────────────────────────────────
+
+class _FakeSMTP:
+    sent = []
+    login_error = None
+    send_error = None
+
+    def __init__(self, host, port, timeout=None):
+        self.host, self.port = host, port
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def starttls(self, context=None):
+        pass
+
+    def login(self, user, password):
+        if _FakeSMTP.login_error:
+            raise _FakeSMTP.login_error
+        self.user = user
+
+    def send_message(self, msg):
+        if _FakeSMTP.send_error:
+            raise _FakeSMTP.send_error
+        _FakeSMTP.sent.append(msg)
+
+
+@pytest.fixture
+def fake_smtp(monkeypatch):
+    _FakeSMTP.sent, _FakeSMTP.login_error, _FakeSMTP.send_error = [], None, None
+    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
+    return _FakeSMTP
+
+
+def test_smtp_sends_to_any_recipient_with_stable_message_id(fake_smtp):
+    p = SmtpEmailProvider(user="me@gmail.com", password="app-pass", from_address="onboarding@resend.dev")
+    id1 = p.send(to="akshat1feb@gmail.com", subject="S", body="B", idempotency_key="k1")
+    id2 = p.send(to="akshat1feb@gmail.com", subject="S", body="B", idempotency_key="k1")
+    assert id1 == id2                                     # deterministic per logical delivery
+    m = fake_smtp.sent[0]
+    assert m["To"] == "akshat1feb@gmail.com" and "me@gmail.com" in m["From"] and m["Subject"] == "S"
+
+
+@pytest.mark.parametrize("exc,retryable", [
+    (smtplib.SMTPAuthenticationError(535, b"bad"), False),
+    (smtplib.SMTPRecipientsRefused({"x": (550, b"no")}), False),
+    (smtplib.SMTPResponseException(451, b"try later"), True),
+    (smtplib.SMTPResponseException(554, b"rejected"), False),
+    (ConnectionRefusedError(), True),
+])
+def test_smtp_error_classification(fake_smtp, exc, retryable):
+    fake_smtp.send_error = exc
+    fake_smtp.login_error = exc if isinstance(exc, smtplib.SMTPAuthenticationError) else None
+    with pytest.raises(EmailSendError) as e:
+        SmtpEmailProvider(user="me@gmail.com", password="p").send(to="a@b.com", subject="S", body="B", idempotency_key="k")
+    assert e.value.retryable is retryable
+
+
+def test_smtp_without_credentials_is_permanent_error():
+    with pytest.raises(EmailSendError) as e:
+        SmtpEmailProvider(user="", password="").send(to="a@b.com", subject="S", body="B", idempotency_key="k")
+    assert e.value.retryable is False

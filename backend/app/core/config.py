@@ -28,12 +28,17 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Email delivery (Phase 8). "resend" = real provider, "mock" = tests only.
+    # Email delivery (Phase 8). "resend" or "smtp" = real providers, "mock" = tests only.
     EMAIL_PROVIDER: str = "resend"
     EMAIL_API_KEY: str = ""
     EMAIL_FROM: str = "onboarding@resend.dev"
     EMAIL_FROM_NAME: str = "The Herald"
     EMAIL_TIMEOUT_SECONDS: float = 15.0
+    # SMTP (EMAIL_PROVIDER=smtp), e.g. Gmail with an App Password. Sends to any recipient, no domain needed.
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
 
     # Delivery retry (Phase 8)
     DELIVERY_MAX_ATTEMPTS: int = 3
